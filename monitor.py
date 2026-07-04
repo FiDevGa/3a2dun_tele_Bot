@@ -4,30 +4,98 @@ import time
 import io
 import json
 import os
+from datetime import datetime
 
 DB_FILE = "connected_channels.json"
+LAST_CHECKED_FILE = "last_checked.json"
+LOGS_FILE = "channel_logs.json"
+
 print("Hybrid Media Monitoring & Multi-Channel Sync Online...")
 
-last_checked_ids = {}
 sent_messages_registry = {}
 
-def load_targets():
+# ─────────────────────────────────────────────
+# Persistence helpers
+# ─────────────────────────────────────────────
+
+def get_path(filename):
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    full_path = os.path.join(base_dir, DB_FILE)
-    
-    if os.path.exists(full_path):
+    return os.path.join(base_dir, filename)
+
+def load_json(filename, default):
+    path = get_path(filename)
+    if os.path.exists(path):
         try:
-            with open(full_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if data:
-                    print(f"📂 [قراءة ناجحة] تم تحميل {len(data)} قنوات من ملف الإعدادات.")
-                return data
-        except Exception as e:
-            print(f"❌ خطأ أثناء قراءة ملف الـ JSON: {e}")
-            return {}
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return default
+    return default
+
+def save_json(filename, data):
+    path = get_path(filename)
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+    except Exception as e:
+        print(f"⚠️ فشل حفظ {filename}: {e}")
+
+def load_targets():
+    data = load_json(DB_FILE, {})
+    if data:
+        print(f"📂 [قراءة ناجحة] تم تحميل {len(data)} قنوات من ملف الإعدادات.")
     else:
-        print(f"⚠️ ملف الإعدادات غير موجود في المسار المتوقع: {full_path}")
-    return {}
+        print(f"⚠️ ملف الإعدادات فارغ أو غير موجود.")
+    return data
+
+def load_last_checked():
+    return load_json(LAST_CHECKED_FILE, {})
+
+def save_last_checked(data):
+    save_json(LAST_CHECKED_FILE, data)
+
+def log_action(channel_name, action, msg_id):
+    logs = load_json(LOGS_FILE, {})
+    if channel_name not in logs:
+        logs[channel_name] = []
+    logs[channel_name].append({
+        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "action": action,
+        "msg_id": msg_id,
+    })
+    # keep only last 50 entries per channel
+    logs[channel_name] = logs[channel_name][-50:]
+    save_json(LOGS_FILE, logs)
+
+# ─────────────────────────────────────────────
+# Discord send with retry
+# ─────────────────────────────────────────────
+
+def send_to_discord(webhook_url, payload, files=None, retries=3):
+    execute_url = f"{webhook_url}?wait=true"
+    for attempt in range(1, retries + 1):
+        try:
+            if files:
+                res = requests.post(execute_url, data={"payload_json": json.dumps(payload)}, files=files, timeout=20)
+            else:
+                res = requests.post(execute_url, json=payload, timeout=20)
+            if res.status_code in [200, 201]:
+                return res
+            elif res.status_code == 429:
+                retry_after = res.json().get("retry_after", 2)
+                print(f"⏳ Rate limited — انتظار {retry_after} ثانية...")
+                time.sleep(float(retry_after))
+            else:
+                print(f"⚠️ فشل الإرسال (محاولة {attempt}/{retries}): {res.status_code} — {res.text[:100]}")
+                time.sleep(1)
+        except Exception as e:
+            print(f"⚠️ خطأ في الإرسال (محاولة {attempt}/{retries}): {e}")
+            time.sleep(1)
+    return None
+
+# ─────────────────────────────────────────────
+# Message payload builder
+# ─────────────────────────────────────────────
 
 def build_single_message_payload(display_name, item, channel_name, avatar_url):
     msg_id = item["id"]
@@ -46,9 +114,8 @@ def build_single_message_payload(display_name, item, channel_name, avatar_url):
     embed = {
         "color": 15844367,
         "author": {"name": display_name},
-        "description": embed_text if embed_text.strip() else None,
+        "description": embed_text.strip() if embed_text.strip() else None,
     }
-
     if avatar_url:
         embed["thumbnail"] = {"url": avatar_url}
 
@@ -85,32 +152,32 @@ def send_single_item(item, display_name, channel_name, avatar_url, webhook_url):
         except Exception:
             pass
 
-    execute_url = f"{webhook_url}?wait=true"
-    if files:
-        res = requests.post(execute_url, data={"payload_json": json.dumps(payload)}, files=files)
-    else:
-        res = requests.post(execute_url, json=payload)
+    return send_to_discord(webhook_url, payload, files if files else None)
 
-    return res
+# ─────────────────────────────────────────────
+# Main loop
+# ─────────────────────────────────────────────
 
+last_checked_ids = load_last_checked()
+print(f"📌 تم تحميل آخر مواضع مراقبة لـ {len(last_checked_ids)} قناة من الذاكرة.")
 
 while True:
     TARGETS = load_targets()
-    
+
     if not TARGETS:
         print("No channels found in connected_channels.json. Waiting...")
         time.sleep(10)
         continue
-        
+
     print(f"\n🔄 [دورة فحص جديدة] جاري فحص {len(TARGETS)} قنوات تليجرام الآن...")
-    
+
     for channel_name, target_data in TARGETS.items():
         display_name = target_data["display_name"]
         webhook_url = target_data["webhook"]
-        
+
         if channel_name not in last_checked_ids:
             last_checked_ids[channel_name] = None
-            
+
         response = None
         for attempt in range(3):
             try:
@@ -119,7 +186,7 @@ while True:
                     break
             except requests.exceptions.RequestException:
                 time.sleep(2)
-                
+
         if not response or response.status_code != 200:
             print(f"❌ [{channel_name}] فشل الاتصال بصفحة التليجرام العامة.")
             continue
@@ -128,13 +195,13 @@ while True:
             soup = BeautifulSoup(response.text, 'html.parser')
             avatar_element = soup.find('img', class_='tgme_page_photo_image')
             avatar_url = avatar_element['src'] if avatar_element and 'src' in avatar_element.attrs else None
-            
+
             messages = soup.find_all('div', class_='tgme_widget_message_wrap')
             live_telegram_ids = set()
-            
+
             if messages:
                 first_live_id = int(messages[0].find('div', class_='tgme_widget_message')['data-post'].split('/')[-1])
-                
+
                 try:
                     latest_msg_id = int(messages[-1].find('div', class_='tgme_widget_message')['data-post'].split('/')[-1])
                 except Exception:
@@ -142,6 +209,7 @@ while True:
 
                 if last_checked_ids[channel_name] is None:
                     last_checked_ids[channel_name] = latest_msg_id
+                    save_last_checked(last_checked_ids)
                     print(f"📡 [{channel_name}] بدأت المراقبة بنجاح عند المنشور رقم: {latest_msg_id}")
                 else:
                     print(f"🔍 [{channel_name}] يتم الفحص.. (آخر منشور مسجل: {last_checked_ids[channel_name]} | أحدث منشور حالي: {latest_msg_id})")
@@ -154,28 +222,28 @@ while True:
                         msg_widget = message.find('div', class_='tgme_widget_message')
                         if not msg_widget or 'data-post' not in msg_widget.attrs:
                             continue
-                            
+
                         msg_id = int(msg_widget['data-post'].split('/')[-1])
                         live_telegram_ids.add(msg_id)
 
                         if msg_id in seen_ids_this_cycle:
                             continue
                         seen_ids_this_cycle.add(msg_id)
-                        
+
                         if msg_id > last_checked_ids[channel_name]:
                             text_element = message.find('div', class_='tgme_widget_message_text')
                             msg_text = text_element.get_text(separator="\n") if text_element else ""
-                            
+
                             image_element = message.find('a', class_='tgme_widget_message_photo_wrap')
                             image_url = None
                             if image_element and 'style' in image_element.attrs:
                                 style = image_element['style']
                                 if "background-image:url('" in style:
                                     image_url = style.split("background-image:url('")[1].split("')")[0]
-                                    
+
                             video_element = message.find('video', class_='tgme_widget_message_video')
                             video_url = video_element['src'] if video_element and 'src' in video_element.attrs else None
-                                
+
                             audio_url = None
                             audio_element = message.find('audio')
                             if audio_element:
@@ -186,13 +254,13 @@ while True:
                                     fallback_audio = voice_player.find('audio')
                                     if fallback_audio:
                                         audio_url = fallback_audio.get('src') or fallback_audio.get('data-src')
-                                        
+
                             pdf_url = None
                             doc_element = message.find('a', class_='tgme_widget_message_document_wrap')
                             if doc_element and 'href' in doc_element.attrs:
                                 raw_href = doc_element['href']
                                 pdf_url = raw_href.replace("t.me/s/", "t.me/").replace("?single", "") if "t.me/s/" in raw_href else raw_href
-                                    
+
                             new_messages.append({
                                 "id": msg_id, "text": msg_text, "image_url": image_url,
                                 "video_url": video_url, "audio_url": audio_url, "pdf_url": pdf_url
@@ -203,7 +271,7 @@ while True:
 
                 for item in new_messages:
                     res = send_single_item(item, display_name, channel_name, avatar_url, webhook_url)
-                    if res.status_code in [200, 201]:
+                    if res and res.status_code in [200, 201]:
                         discord_msg_id = res.json()["id"]
                         sent_messages_registry[(channel_name, item["id"])] = {
                             "discord_msg_id": discord_msg_id,
@@ -213,28 +281,30 @@ while True:
                             "audio_url": item["audio_url"],
                             "pdf_url": item["pdf_url"],
                         }
+                        log_action(channel_name, "forwarded", item["id"])
+                        save_last_checked(last_checked_ids)
                         print(f"🚀 [{channel_name}] تم نقل المنشور رقم {item['id']} إلى ديسكورد بنجاح!")
                     else:
-                        print(f"⚠️ [{channel_name}] فشل إرسال المنشور رقم {item['id']}: {res.status_code}")
+                        print(f"❌ [{channel_name}] فشل إرسال المنشور رقم {item['id']} بعد كل المحاولات.")
 
-            tracked_keys = [(ch, tid) for (ch, tid) in sent_messages_registry if ch == channel_name]
+                tracked_keys = [(ch, tid) for (ch, tid) in sent_messages_registry if ch == channel_name]
+                for key in tracked_keys:
+                    _, tid = key
+                    if tid not in live_telegram_ids and tid >= first_live_id:
+                        meta = sent_messages_registry[key]
+                        d_msg_id = meta["discord_msg_id"]
+                        print(f"🗑️ [{channel_name}] رصد حذف منشور #{tid} — جاري الحذف من ديسكورد...")
+                        try:
+                            requests.delete(f"{webhook_url}/messages/{d_msg_id}", timeout=10)
+                            log_action(channel_name, "deleted", tid)
+                        except Exception:
+                            pass
+                        del sent_messages_registry[key]
 
-            for key in tracked_keys:
-                _, tid = key
-                if tid not in live_telegram_ids and tid >= first_live_id:
-                    meta = sent_messages_registry[key]
-                    d_msg_id = meta["discord_msg_id"]
-                    print(f"🗑️ [{channel_name}] تم رصد حذف منشور على تليجرام رقم: {tid}, جاري الحذف من ديسكورد...")
-                    try:
-                        requests.delete(f"{webhook_url}/messages/{d_msg_id}")
-                    except Exception:
-                        pass
-                    del sent_messages_registry[key]
-                    
         except Exception as e:
             print(f"❌ خطأ أثناء معالجة القناة [{channel_name}]: {e}")
-            
+
         time.sleep(1)
-        
+
     print("💤 انتهت الدورة الحالية. جاري الانتظار لمدة 30 ثانية قبل الفحص القادم...")
     time.sleep(30)
