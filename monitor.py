@@ -12,7 +12,6 @@ last_checked_ids = {}
 sent_messages_registry = {}
 
 def load_targets():
-    # استخدام المسار المطلق لضمان العثور على الملف أينما تم تشغيل السكربت
     base_dir = os.path.dirname(os.path.abspath(__file__))
     full_path = os.path.join(base_dir, DB_FILE)
     
@@ -30,76 +29,70 @@ def load_targets():
         print(f"⚠️ ملف الإعدادات غير موجود في المسار المتوقع: {full_path}")
     return {}
 
-def build_split_media_payload(display_name, items_list, channel_name, avatar_url):
-    embeds = []
-    total_items = len(items_list)
-    main_content_text = ""
-    target_video_source = None
-    last_post_id = items_list[-1]["id"] if total_items > 0 else 0
-    direct_post_link = f"https://t.me/{channel_name}/{last_post_id}"
-    
-    if total_items > 0 and items_list[0]["video_url"]:
-        msg1_text = items_list[0]["text"]
-        target_video_source = items_list[0]["video_url"]
-        
-        main_content_text = f"**{display_name}**"
-        first_embed_text = msg1_text if msg1_text else ""
-        
-        if items_list[0]["audio_url"]:
-            first_embed_text += f"\n\n📢 **يوجد ملف صوتي مرفق بالمنشور:**\n🎵 **[استماع للملف الصوتي]({items_list[0]['audio_url']})**"
-        if items_list[0]["pdf_url"]:
-            first_embed_text += f"\n\n📢 **يوجد ملف مرفق بالمنشور:**\n📁 **[تحميل واستعراض المرفق]({items_list[0]['pdf_url']})**"
-        if total_items == 1:
-            first_embed_text += f"\n\n🔗 **[رابط المنشور]({direct_post_link})**"
-            
-        main_embed = {"description": first_embed_text if first_embed_text else None, "color": 15844367}
-        if avatar_url:
-            main_embed["thumbnail"] = {"url": avatar_url}
-        if items_list[0]["image_url"]:
-            main_embed["image"] = {"url": "attachment://image.jpg" if items_list[0].get("use_binary_attachment", True) else items_list[0]["image_url"]}
-            
-        embeds.append(main_embed)
-        
-        for i in range(1, total_items):
-            item = items_list[i]
-            current_text = item["text"]
-            if item["audio_url"]:
-                current_text += f"\n\n📢 **يوجد ملف صوتي مرفق:**\n🎵 **[استماع]({item['audio_url']})**"
-            if item["pdf_url"]:
-                current_text += f"\n\n📢 **يوجد ملف مرفق:**\n📁 **[تحميل]({item['pdf_url']})**"
-            if i == total_items - 1:
-                current_text += f"\n\n🔗 **[رابط المنشور]({direct_post_link})**"
-            current_text = "───────────────────\n\n" + current_text
-            embed = {"description": current_text, "color": 15844367}
-            if item["image_url"]:
-                embed["image"] = {"url": "attachment://image.jpg" if item.get("use_binary_attachment", True) else item["image_url"]}
-            embeds.append(embed)
-    else:
-        for i, item in enumerate(items_list):
-            current_text = item["text"]
-            if item["audio_url"]:
-                current_text += f"\n\n📢 **يوجد ملف صوتي مرفق:**\n🎵 **[استماع]({item['audio_url']})**"
-            if item["pdf_url"]:
-                current_text += f"\n\n📢 **يوجد ملف مرفق:**\n📁 **[تحميل]({item['pdf_url']})**"
-            if i == total_items - 1:
-                current_text += f"\n\n🔗 **[رابط المنشور]({direct_post_link})**"
-            if i > 0 and current_text:
-                current_text = "───────────────────\n\n" + current_text
-            embed = {"description": current_text if current_text else None, "color": 15844367}
-            if i == 0:
-                embed["author"] = {"name": display_name}
-                if avatar_url:
-                    embed["thumbnail"] = {"url": avatar_url}
-            if item["image_url"]:
-                embed["image"] = {"url": "attachment://image.jpg" if item.get("use_binary_attachment", True) else item["image_url"]}
-            embeds.append(embed)
+def build_single_message_payload(display_name, item, channel_name, avatar_url):
+    msg_id = item["id"]
+    direct_post_link = f"https://t.me/{channel_name}/{msg_id}"
+    target_video_source = item.get("video_url")
+
+    embed_text = item["text"] if item["text"] else ""
+
+    if item.get("audio_url"):
+        embed_text += f"\n\n📢 **يوجد ملف صوتي مرفق بالمنشور:**\n🎵 **[استماع للملف الصوتي]({item['audio_url']})**"
+    if item.get("pdf_url"):
+        embed_text += f"\n\n📢 **يوجد ملف مرفق بالمنشور:**\n📁 **[تحميل واستعراض المرفق]({item['pdf_url']})**"
+
+    embed_text += f"\n\n🔗 **[رابط المنشور]({direct_post_link})**"
+
+    embed = {
+        "color": 15844367,
+        "author": {"name": display_name},
+        "description": embed_text if embed_text.strip() else None,
+    }
+
+    if avatar_url:
+        embed["thumbnail"] = {"url": avatar_url}
+
+    use_attachment = item.get("use_binary_attachment", True)
+    if item.get("image_url"):
+        embed["image"] = {"url": "attachment://image.jpg" if use_attachment else item["image_url"]}
 
     payload = {}
-    if main_content_text:
-        payload["content"] = main_content_text
-    if embeds:
-        payload["embeds"] = embeds
+    if target_video_source:
+        payload["content"] = f"**{display_name}**"
+    if embed.get("description") or embed.get("image"):
+        payload["embeds"] = [embed]
+
     return payload, target_video_source
+
+
+def send_single_item(item, display_name, channel_name, avatar_url, webhook_url):
+    payload, target_video_source = build_single_message_payload(display_name, item, channel_name, avatar_url)
+
+    files = {}
+    if item.get("image_url") and item.get("use_binary_attachment", True):
+        try:
+            img_res = requests.get(item["image_url"], timeout=10)
+            if img_res.status_code == 200:
+                files["files[0]"] = ("image.jpg", io.BytesIO(img_res.content))
+        except Exception:
+            pass
+
+    if target_video_source:
+        try:
+            vid_res = requests.get(target_video_source, timeout=15)
+            if vid_res.status_code == 200:
+                files["files[1]"] = ("video.mp4", io.BytesIO(vid_res.content))
+        except Exception:
+            pass
+
+    execute_url = f"{webhook_url}?wait=true"
+    if files:
+        res = requests.post(execute_url, data={"payload_json": json.dumps(payload)}, files=files)
+    else:
+        res = requests.post(execute_url, json=payload)
+
+    return res
+
 
 while True:
     TARGETS = load_targets()
@@ -153,7 +146,8 @@ while True:
                 else:
                     print(f"🔍 [{channel_name}] يتم الفحص.. (آخر منشور مسجل: {last_checked_ids[channel_name]} | أحدث منشور حالي: {latest_msg_id})")
 
-                new_messages_batch = []
+                new_messages = []
+                seen_ids_this_cycle = set()
 
                 for message in messages:
                     try:
@@ -163,6 +157,10 @@ while True:
                             
                         msg_id = int(msg_widget['data-post'].split('/')[-1])
                         live_telegram_ids.add(msg_id)
+
+                        if msg_id in seen_ids_this_cycle:
+                            continue
+                        seen_ids_this_cycle.add(msg_id)
                         
                         if msg_id > last_checked_ids[channel_name]:
                             text_element = message.find('div', class_='tgme_widget_message_text')
@@ -195,81 +193,43 @@ while True:
                                 raw_href = doc_element['href']
                                 pdf_url = raw_href.replace("t.me/s/", "t.me/").replace("?single", "") if "t.me/s/" in raw_href else raw_href
                                     
-                            new_messages_batch.append({
-                                "id": msg_id, "text": msg_text, "image_url": image_url, 
+                            new_messages.append({
+                                "id": msg_id, "text": msg_text, "image_url": image_url,
                                 "video_url": video_url, "audio_url": audio_url, "pdf_url": pdf_url
                             })
                             last_checked_ids[channel_name] = msg_id
                     except Exception:
                         continue
 
-                if new_messages_batch:
-                    all_ids_in_this_stack = [m["id"] for m in new_messages_batch]
-                    target_image_url = next((m["image_url"] for m in new_messages_batch if m["image_url"]), None)
-                    
-                    payload, target_video_source = build_split_media_payload(display_name, new_messages_batch, channel_name, avatar_url)
-                    
-                    files = {}
-                    if target_image_url:
-                        try:
-                            img_res = requests.get(target_image_url, timeout=10)
-                            if img_res.status_code == 200:
-                                files["files[0]"] = ("image.jpg", io.BytesIO(img_res.content))
-                        except Exception: pass
-                            
-                    if target_video_source:
-                        try:
-                            vid_res = requests.get(target_video_source, timeout=15)
-                            if vid_res.status_code == 200:
-                                files["files[1]"] = ("video.mp4", io.BytesIO(vid_res.content))
-                        except Exception: pass
-
-                    execute_url = f"{webhook_url}?wait=true"
-                    res = requests.post(execute_url, data={"payload_json": json.dumps(payload)}, files=files) if files else requests.post(execute_url, json=payload)
-                    
+                for item in new_messages:
+                    res = send_single_item(item, display_name, channel_name, avatar_url, webhook_url)
                     if res.status_code in [200, 201]:
                         discord_msg_id = res.json()["id"]
-                        for m in new_messages_batch:
-                            sent_messages_registry[m["id"]] = {
-                                "discord_msg_id": discord_msg_id, "text": m["text"], "image_url": m["image_url"],
-                                "video_url": m["video_url"], "audio_url": m["audio_url"], "pdf_url": m["pdf_url"], 
-                                "tg_channel": channel_name, "all_ids_in_stack": all_ids_in_this_stack
-                            }
-                        print(f"🚀 [{channel_name}] تم نقل منشورات جديدة إلى ديسكورد بنجاح!")
-
-            tracked_ids_for_this_channel = [tid for tid, data in sent_messages_registry.items() if data["tg_channel"] == channel_name]
-            
-            for tid in tracked_ids_for_this_channel:
-                if tid not in live_telegram_ids and tid >= first_live_id:
-                    meta = sent_messages_registry[tid]
-                    d_msg_id = meta["discord_msg_id"]
-                    stack_list = meta["all_ids_in_stack"]
-                    
-                    print(f"🗑️ [{channel_name}] تم رصد حذف منشور على تليجرام، جاري الحذف من ديسكورد للرقم: {tid}")
-                    remaining_ids_in_stack = [sid for sid in stack_list if sid != tid and sid in sent_messages_registry]
-                    
-                    if not remaining_ids_in_stack:
-                        try:
-                            requests.delete(f"{webhook_url}/messages/{d_msg_id}")
-                        except Exception: pass
+                        sent_messages_registry[(channel_name, item["id"])] = {
+                            "discord_msg_id": discord_msg_id,
+                            "text": item["text"],
+                            "image_url": item["image_url"],
+                            "video_url": item["video_url"],
+                            "audio_url": item["audio_url"],
+                            "pdf_url": item["pdf_url"],
+                        }
+                        print(f"🚀 [{channel_name}] تم نقل المنشور رقم {item['id']} إلى ديسكورد بنجاح!")
                     else:
-                        surviving_items = []
-                        for sid in remaining_ids_in_stack:
-                            surviving_items.append({
-                                "id": sid, "text": sent_messages_registry[sid]["text"], "image_url": sent_messages_registry[sid]["image_url"],
-                                "video_url": sent_messages_registry[sid]["video_url"], "audio_url": sent_messages_registry[sid]["audio_url"],
-                                "pdf_url": sent_messages_registry[sid]["pdf_url"], "use_binary_attachment": False
-                            })
-                        
-                        edit_payload, _ = build_split_media_payload(display_name, surviving_items, channel_name, avatar_url)
-                        for sid in remaining_ids_in_stack:
-                            sent_messages_registry[sid]["all_ids_in_stack"] = remaining_ids_in_stack
-                            
-                        try:
-                            requests.patch(f"{webhook_url}/messages/{d_msg_id}", json=edit_payload)
-                        except Exception: pass
-                        
-                    del sent_messages_registry[tid]
+                        print(f"⚠️ [{channel_name}] فشل إرسال المنشور رقم {item['id']}: {res.status_code}")
+
+            tracked_keys = [(ch, tid) for (ch, tid) in sent_messages_registry if ch == channel_name]
+
+            for key in tracked_keys:
+                _, tid = key
+                if tid not in live_telegram_ids and tid >= first_live_id:
+                    meta = sent_messages_registry[key]
+                    d_msg_id = meta["discord_msg_id"]
+                    print(f"🗑️ [{channel_name}] تم رصد حذف منشور على تليجرام رقم: {tid}, جاري الحذف من ديسكورد...")
+                    try:
+                        requests.delete(f"{webhook_url}/messages/{d_msg_id}")
+                    except Exception:
+                        pass
+                    del sent_messages_registry[key]
                     
         except Exception as e:
             print(f"❌ خطأ أثناء معالجة القناة [{channel_name}]: {e}")
