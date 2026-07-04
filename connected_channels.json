@@ -30,5 +30,9 @@
     "abdulazizatarefe": {
         "display_name": "عبدالعزيز الطريفي",
         "webhook": "https://discord.com/api/webhooks/1522676896649842729/BFUB7YdKFRviMfuQ2It2wVhkq-SBpg4F-kQDgJk_3IDtkG63mGY7l0SunyHBNEP9ov4w"
+    },
+    "test": {
+        "display_name": "test test",
+        "webhook": "https://discord.com/api/webhooks/1522993227643224166/kFXLtNzQN-VNkcHSZZXcRqZYteLUIQLG3YzlWpErEwqiZLtLCLJy76HDRnsVRI4uUsr4"
     }
 }
