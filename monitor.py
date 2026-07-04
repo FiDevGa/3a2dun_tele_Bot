@@ -8,14 +8,14 @@ from datetime import datetime
 
 DB_FILE = "connected_channels.json"
 LAST_CHECKED_FILE = "last_checked.json"
-LOGS_FILE = "channel_logs.json"
+CONFIG_FILE = "config.json"
 
 print("Hybrid Media Monitoring & Multi-Channel Sync Online...")
 
 sent_messages_registry = {}
 
 # ─────────────────────────────────────────────
-# Persistence helpers
+# Helpers
 # ─────────────────────────────────────────────
 
 def get_path(filename):
@@ -54,18 +54,67 @@ def load_last_checked():
 def save_last_checked(data):
     save_json(LAST_CHECKED_FILE, data)
 
-def log_action(channel_name, action, msg_id):
-    logs = load_json(LOGS_FILE, {})
-    if channel_name not in logs:
-        logs[channel_name] = []
-    logs[channel_name].append({
-        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "action": action,
-        "msg_id": msg_id,
-    })
-    # keep only last 50 entries per channel
-    logs[channel_name] = logs[channel_name][-50:]
-    save_json(LOGS_FILE, logs)
+def load_config():
+    return load_json(CONFIG_FILE, {})
+
+# ─────────────────────────────────────────────
+# Discord logs channel notifier
+# ─────────────────────────────────────────────
+
+DISCORD_API = "https://discord.com/api/v10"
+BOT_TOKEN = os.environ.get("DISCORD_TOKEN", "")
+
+def post_log_message(logs_channel_id: str, embed: dict):
+    if not logs_channel_id or not BOT_TOKEN:
+        return
+    try:
+        requests.post(
+            f"{DISCORD_API}/channels/{logs_channel_id}/messages",
+            headers={"Authorization": f"Bot {BOT_TOKEN}", "Content-Type": "application/json"},
+            json={"embeds": [embed]},
+            timeout=10,
+        )
+    except Exception as e:
+        print(f"⚠️ فشل إرسال رسالة السجل: {e}")
+
+def log_forwarded(channel_name: str, display_name: str, msg_id: int, tg_link: str, discord_msg_id: str, webhook_url: str):
+    config = load_config()
+    logs_channel_id = config.get("logs_channel_id")
+    if not logs_channel_id:
+        return
+
+    webhook_channel_id = webhook_url.split("/")[5] if len(webhook_url.split("/")) > 5 else "?"
+
+    embed = {
+        "color": 0x2ECC71,
+        "title": "🚀 تم تحويل منشور",
+        "fields": [
+            {"name": "📢 القناة المصدر (تليجرام)", "value": f"[{display_name}](https://t.me/{channel_name}) — `@{channel_name}`", "inline": False},
+            {"name": "📌 رقم المنشور", "value": f"[#{msg_id}]({tg_link})", "inline": True},
+            {"name": "📥 الوجهة (ديسكورد)", "value": f"<#{webhook_channel_id}>", "inline": True},
+        ],
+        "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "footer": {"text": "Telegram → Discord Monitor"},
+    }
+    post_log_message(logs_channel_id, embed)
+
+def log_deleted(channel_name: str, display_name: str, msg_id: int):
+    config = load_config()
+    logs_channel_id = config.get("logs_channel_id")
+    if not logs_channel_id:
+        return
+
+    embed = {
+        "color": 0xE74C3C,
+        "title": "🗑️ تم حذف منشور",
+        "fields": [
+            {"name": "📢 القناة (تليجرام)", "value": f"[{display_name}](https://t.me/{channel_name}) — `@{channel_name}`", "inline": False},
+            {"name": "📌 رقم المنشور المحذوف", "value": f"#{msg_id}", "inline": True},
+        ],
+        "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "footer": {"text": "Telegram → Discord Monitor"},
+    }
+    post_log_message(logs_channel_id, embed)
 
 # ─────────────────────────────────────────────
 # Discord send with retry
@@ -103,12 +152,10 @@ def build_single_message_payload(display_name, item, channel_name, avatar_url):
     target_video_source = item.get("video_url")
 
     embed_text = item["text"] if item["text"] else ""
-
     if item.get("audio_url"):
         embed_text += f"\n\n📢 **يوجد ملف صوتي مرفق بالمنشور:**\n🎵 **[استماع للملف الصوتي]({item['audio_url']})**"
     if item.get("pdf_url"):
         embed_text += f"\n\n📢 **يوجد ملف مرفق بالمنشور:**\n📁 **[تحميل واستعراض المرفق]({item['pdf_url']})**"
-
     embed_text += f"\n\n🔗 **[رابط المنشور]({direct_post_link})**"
 
     embed = {
@@ -281,8 +328,9 @@ while True:
                             "audio_url": item["audio_url"],
                             "pdf_url": item["pdf_url"],
                         }
-                        log_action(channel_name, "forwarded", item["id"])
                         save_last_checked(last_checked_ids)
+                        tg_link = f"https://t.me/{channel_name}/{item['id']}"
+                        log_forwarded(channel_name, display_name, item["id"], tg_link, discord_msg_id, webhook_url)
                         print(f"🚀 [{channel_name}] تم نقل المنشور رقم {item['id']} إلى ديسكورد بنجاح!")
                     else:
                         print(f"❌ [{channel_name}] فشل إرسال المنشور رقم {item['id']} بعد كل المحاولات.")
@@ -296,7 +344,7 @@ while True:
                         print(f"🗑️ [{channel_name}] رصد حذف منشور #{tid} — جاري الحذف من ديسكورد...")
                         try:
                             requests.delete(f"{webhook_url}/messages/{d_msg_id}", timeout=10)
-                            log_action(channel_name, "deleted", tid)
+                            log_deleted(channel_name, display_name, tid)
                         except Exception:
                             pass
                         del sent_messages_registry[key]

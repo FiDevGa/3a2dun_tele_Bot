@@ -10,7 +10,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 BOT_START_TIME = time.time()
 DB_FILE = "connected_channels.json"
-LOGS_FILE = "channel_logs.json"
+CONFIG_FILE = "config.json"
 
 def load_targets():
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -29,9 +29,9 @@ def save_targets(targets):
     with open(full_path, "w", encoding="utf-8") as f:
         json.dump(targets, f, ensure_ascii=False, indent=4)
 
-def load_logs():
+def load_config():
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    full_path = os.path.join(base_dir, LOGS_FILE)
+    full_path = os.path.join(base_dir, CONFIG_FILE)
     if os.path.exists(full_path):
         try:
             with open(full_path, "r", encoding="utf-8") as f:
@@ -39,6 +39,12 @@ def load_logs():
         except Exception:
             return {}
     return {}
+
+def save_config(config):
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    full_path = os.path.join(base_dir, CONFIG_FILE)
+    with open(full_path, "w", encoding="utf-8") as f:
+        json.dump(config, f, ensure_ascii=False, indent=4)
 
 
 # ─────────────────────────────────────────────
@@ -50,25 +56,9 @@ class EditModal(discord.ui.Modal):
         super().__init__(title=f"تعديل: {current_data['display_name'][:40]}")
         self.channel_key = channel_key
 
-        self.new_id = discord.ui.TextInput(
-            label="معرف قناة تليجرام",
-            default=channel_key,
-            required=True,
-            max_length=100,
-        )
-        self.new_name = discord.ui.TextInput(
-            label="اسم العرض",
-            default=current_data["display_name"],
-            required=True,
-            max_length=100,
-        )
-        self.new_webhook = discord.ui.TextInput(
-            label="رابط Webhook",
-            default=current_data["webhook"],
-            required=True,
-            max_length=500,
-            style=discord.TextStyle.paragraph,
-        )
+        self.new_id = discord.ui.TextInput(label="معرف قناة تليجرام", default=channel_key, required=True, max_length=100)
+        self.new_name = discord.ui.TextInput(label="اسم العرض", default=current_data["display_name"], required=True, max_length=100)
+        self.new_webhook = discord.ui.TextInput(label="رابط Webhook", default=current_data["webhook"], required=True, max_length=500, style=discord.TextStyle.paragraph)
         self.add_item(self.new_id)
         self.add_item(self.new_name)
         self.add_item(self.new_webhook)
@@ -79,17 +69,15 @@ class EditModal(discord.ui.Modal):
         new_key = self.new_id.value.strip().replace("https://t.me/", "").replace("@", "")
         new_name = self.new_name.value.strip()
         new_webhook = self.new_webhook.value.strip()
-
         if old_key in targets:
             del targets[old_key]
         targets[new_key] = {"display_name": new_name, "webhook": new_webhook}
         save_targets(targets)
-
         embed = discord.Embed(title="✅ تم الحفظ بنجاح", color=discord.Color.green())
         embed.add_field(name="معرف التليجرام", value=f"`{new_key}`", inline=False)
         embed.add_field(name="اسم العرض", value=new_name, inline=False)
-        wh_display = f"`{new_webhook[:60]}...`" if len(new_webhook) > 60 else f"`{new_webhook}`"
-        embed.add_field(name="Webhook", value=wh_display, inline=False)
+        wh = new_webhook
+        embed.add_field(name="Webhook", value=f"`{wh[:60]}...`" if len(wh) > 60 else f"`{wh}`", inline=False)
         await interaction.response.edit_message(embed=embed, view=None)
 
 
@@ -106,43 +94,55 @@ class EditPanelView(discord.ui.View):
     @discord.ui.button(label="❌ إغلاق", style=discord.ButtonStyle.danger)
     async def close_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(
-            embed=discord.Embed(title="🔒 تم إغلاق لوحة التعديل", color=discord.Color.greyple()),
-            view=None,
-        )
+            embed=discord.Embed(title="🔒 تم إغلاق لوحة التعديل", color=discord.Color.greyple()), view=None)
+
+
+class DeleteConfirmView(discord.ui.View):
+    def __init__(self, channel_key: str):
+        super().__init__(timeout=60)
+        self.channel_key = channel_key
+
+    @discord.ui.button(label="✅ تأكيد الحذف", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        targets = load_targets()
+        display = targets.get(self.channel_key, {}).get("display_name", self.channel_key)
+        if self.channel_key in targets:
+            del targets[self.channel_key]
+            save_targets(targets)
+            embed = discord.Embed(title="✅ تم الحذف", description=f"تم حذف القناة **{display}** من قائمة المراقبة.", color=discord.Color.green())
+        else:
+            embed = discord.Embed(title="❌ القناة غير موجودة", color=discord.Color.red())
+        await interaction.response.edit_message(embed=embed, view=None)
+
+    @discord.ui.button(label="❌ إلغاء", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(
+            embed=discord.Embed(title="↩️ تم الإلغاء", color=discord.Color.greyple()), view=None)
 
 
 class ChannelSelectView(discord.ui.View):
     def __init__(self, targets: dict, mode: str):
         super().__init__(timeout=60)
         self.targets = targets
-        self.mode = mode  # "edit" | "delete" | "logs"
+        self.mode = mode
 
         options = [
-            discord.SelectOption(
-                label=data["display_name"][:100],
-                value=key,
-                description=f"@{key}"[:100],
-            )
+            discord.SelectOption(label=data["display_name"][:100], value=key, description=f"@{key}"[:100])
             for key, data in list(targets.items())[:25]
         ]
 
         placeholder_map = {
             "edit": "اختر القناة التي تريد تعديلها...",
             "delete": "اختر القناة التي تريد حذفها...",
-            "logs": "اختر القناة لعرض سجل أحداثها...",
         }
 
-        select = discord.ui.Select(
-            placeholder=placeholder_map.get(mode, "اختر قناة..."),
-            options=options,
-        )
+        select = discord.ui.Select(placeholder=placeholder_map.get(mode, "اختر قناة..."), options=options)
         select.callback = self.select_callback
         self.add_item(select)
 
     async def select_callback(self, interaction: discord.Interaction):
         selected_key = interaction.data["values"][0]
         data = self.targets.get(selected_key)
-
         if not data:
             await interaction.response.edit_message(content="❌ لم يتم العثور على هذه القناة.", view=None)
             return
@@ -164,58 +164,6 @@ class ChannelSelectView(discord.ui.View):
             embed.add_field(name="معرف التليجرام", value=f"`{selected_key}`", inline=False)
             await interaction.response.edit_message(embed=embed, view=DeleteConfirmView(selected_key))
 
-        elif self.mode == "logs":
-            all_logs = load_logs()
-            channel_log = all_logs.get(selected_key, [])
-
-            embed = discord.Embed(
-                title=f"📋 سجل أحداث: {data['display_name']}",
-                color=discord.Color.blurple(),
-            )
-            if not channel_log:
-                embed.description = "لا توجد أحداث مسجلة لهذه القناة بعد."
-            else:
-                lines = []
-                for entry in reversed(channel_log[-20:]):
-                    icon = "🚀" if entry["action"] == "forwarded" else "🗑️"
-                    lines.append(f"{icon} `{entry['time']}` — {entry['action']} — منشور #{entry['msg_id']}")
-                embed.description = "\n".join(lines)
-
-            await interaction.response.edit_message(embed=embed, view=None)
-
-
-# ─────────────────────────────────────────────
-# Delete feature
-# ─────────────────────────────────────────────
-
-class DeleteConfirmView(discord.ui.View):
-    def __init__(self, channel_key: str):
-        super().__init__(timeout=60)
-        self.channel_key = channel_key
-
-    @discord.ui.button(label="✅ تأكيد الحذف", style=discord.ButtonStyle.danger)
-    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
-        targets = load_targets()
-        display = targets.get(self.channel_key, {}).get("display_name", self.channel_key)
-        if self.channel_key in targets:
-            del targets[self.channel_key]
-            save_targets(targets)
-            embed = discord.Embed(
-                title="✅ تم الحذف",
-                description=f"تم حذف القناة **{display}** من قائمة المراقبة.",
-                color=discord.Color.green(),
-            )
-        else:
-            embed = discord.Embed(title="❌ القناة غير موجودة", color=discord.Color.red())
-        await interaction.response.edit_message(embed=embed, view=None)
-
-    @discord.ui.button(label="❌ إلغاء", style=discord.ButtonStyle.secondary)
-    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(
-            embed=discord.Embed(title="↩️ تم الإلغاء", color=discord.Color.greyple()),
-            view=None,
-        )
-
 
 # ─────────────────────────────────────────────
 # Bot events & commands
@@ -235,11 +183,7 @@ async def connect_channel(ctx, telegram_username: str, display_name: str, webhoo
         return
     targets[telegram_username] = {"display_name": display_name, "webhook": webhook_url}
     save_targets(targets)
-    await ctx.send(
-        f"✅ تم ربط القناة وحفظها!\n"
-        f"• معرف التليجرام: `{telegram_username}`\n"
-        f"• اسم العرض: **{display_name}**"
-    )
+    await ctx.send(f"✅ تم ربط القناة وحفظها!\n• معرف التليجرام: `{telegram_username}`\n• اسم العرض: **{display_name}**")
 
 @connect_channel.error
 async def connect_error(ctx, error):
@@ -253,11 +197,7 @@ async def edit_channel(ctx):
     if not targets:
         await ctx.send("❌ لا توجد قنوات مربوطة حالياً.")
         return
-    embed = discord.Embed(
-        title="✏️ تعديل القنوات المربوطة",
-        description="اختر القناة التي تريد تعديلها:",
-        color=discord.Color.blurple(),
-    )
+    embed = discord.Embed(title="✏️ تعديل القنوات المربوطة", description="اختر القناة التي تريد تعديلها:", color=discord.Color.blurple())
     await ctx.send(embed=embed, view=ChannelSelectView(targets, mode="edit"))
 
 
@@ -267,11 +207,7 @@ async def delete_channel(ctx):
     if not targets:
         await ctx.send("❌ لا توجد قنوات مربوطة حالياً.")
         return
-    embed = discord.Embed(
-        title="🗑️ حذف قناة مربوطة",
-        description="اختر القناة التي تريد حذفها:",
-        color=discord.Color.red(),
-    )
+    embed = discord.Embed(title="🗑️ حذف قناة مربوطة", description="اختر القناة التي تريد حذفها:", color=discord.Color.red())
     await ctx.send(embed=embed, view=ChannelSelectView(targets, mode="delete"))
 
 
@@ -281,16 +217,9 @@ async def list_channels(ctx):
     if not targets:
         await ctx.send("❌ لا توجد قنوات مربوطة حالياً.")
         return
-    embed = discord.Embed(
-        title=f"📡 القنوات المربوطة ({len(targets)})",
-        color=discord.Color.blurple(),
-    )
+    embed = discord.Embed(title=f"📡 القنوات المربوطة ({len(targets)})", color=discord.Color.blurple())
     for key, data in targets.items():
-        embed.add_field(
-            name=data["display_name"],
-            value=f"🔗 `@{key}`",
-            inline=False,
-        )
+        embed.add_field(name=data["display_name"], value=f"🔗 `@{key}`", inline=False)
     await ctx.send(embed=embed)
 
 
@@ -301,26 +230,38 @@ async def bot_status(ctx):
     hours, remainder = divmod(uptime_seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
     uptime_str = f"{hours}س {minutes}د {seconds}ث"
-
+    config = load_config()
+    logs_channel_id = config.get("logs_channel_id")
+    logs_channel_str = f"<#{logs_channel_id}>" if logs_channel_id else "غير محدد"
     embed = discord.Embed(title="📊 حالة البوت", color=discord.Color.green())
     embed.add_field(name="🤖 البوت", value=str(bot.user), inline=False)
     embed.add_field(name="⏱️ وقت التشغيل", value=uptime_str, inline=True)
     embed.add_field(name="📡 القنوات المراقبة", value=str(len(targets)), inline=True)
+    embed.add_field(name="📋 قناة السجلات", value=logs_channel_str, inline=False)
     await ctx.send(embed=embed)
 
 
-@bot.command(name="logs")
-async def channel_logs(ctx):
-    targets = load_targets()
-    if not targets:
-        await ctx.send("❌ لا توجد قنوات مربوطة حالياً.")
-        return
+@bot.command(name="setlogs")
+async def set_logs_channel(ctx, channel: discord.TextChannel = None):
+    if channel is None:
+        channel = ctx.channel
+
+    config = load_config()
+    config["logs_channel_id"] = str(channel.id)
+    save_config(config)
+
     embed = discord.Embed(
-        title="📋 سجل أحداث القنوات",
-        description="اختر القناة لعرض سجل أحداثها:",
-        color=discord.Color.blurple(),
+        title="✅ تم تعيين قناة السجلات",
+        description=f"سيتم إرسال سجل أحداث المراقبة إلى {channel.mention}",
+        color=discord.Color.green(),
     )
-    await ctx.send(embed=embed, view=ChannelSelectView(targets, mode="logs"))
+    embed.add_field(name="ما الذي سيُسجَّل؟", value="🚀 كل رسالة يتم تحويلها من تليجرام إلى ديسكورد\n🗑️ كل رسالة يتم حذفها من ديسكورد", inline=False)
+    await ctx.send(embed=embed)
+
+@set_logs_channel.error
+async def setlogs_error(ctx, error):
+    if isinstance(error, commands.ChannelNotFound):
+        await ctx.send("❌ لم يتم العثور على القناة. استخدم `!setlogs #اسم-القناة` أو اكتب الأمر في القناة المطلوبة.")
 
 
 TOKEN = os.environ.get('DISCORD_TOKEN')
