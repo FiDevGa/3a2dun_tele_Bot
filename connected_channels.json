@@ -34,5 +34,9 @@
     "test": {
         "display_name": "test test",
         "webhook": "https://discord.com/api/webhooks/1522993227643224166/kFXLtNzQN-VNkcHSZZXcRqZYteLUIQLG3YzlWpErEwqiZLtLCLJy76HDRnsVRI4uUsr4"
+    },
+    "tilawat_Alsayed": {
+        "display_name": "احمد_السيد",
+        "webhook": "https://discord.com/api/webhooks/1522547502065385572/eO7U4WjnDQH7mYWjPCegy3swsA3JRYiFXJ5BohENg1YQBRNUa5vZ6UDFAf9-zof5Getk"
     }
 }
