@@ -9,6 +9,8 @@ from datetime import datetime
 DB_FILE = "connected_channels.json"
 LAST_CHECKED_FILE = "last_checked.json"
 CONFIG_FILE = "config.json"
+ACTIVITY_LOG_FILE = "channel_logs.json"
+MAX_ACTIVITY_ENTRIES = 100
 
 print("Hybrid Media Monitoring & Multi-Channel Sync Online...")
 
@@ -77,7 +79,24 @@ def post_log_message(logs_channel_id: str, embed: dict):
     except Exception as e:
         print(f"⚠️ فشل إرسال رسالة السجل: {e}")
 
+def save_activity(entry: dict):
+    logs = load_json(ACTIVITY_LOG_FILE, [])
+    if not isinstance(logs, list):
+        logs = []
+    logs.insert(0, entry)
+    logs = logs[:MAX_ACTIVITY_ENTRIES]
+    save_json(ACTIVITY_LOG_FILE, logs)
+
 def log_forwarded(channel_name: str, display_name: str, msg_id: int, tg_link: str, discord_msg_id: str, webhook_url: str):
+    save_activity({
+        "action": "forwarded",
+        "channel": channel_name,
+        "display_name": display_name,
+        "msg_id": msg_id,
+        "tg_link": tg_link,
+        "time": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+    })
+
     config = load_config()
     logs_channel_id = config.get("logs_channel_id")
     if not logs_channel_id:
@@ -99,6 +118,15 @@ def log_forwarded(channel_name: str, display_name: str, msg_id: int, tg_link: st
     post_log_message(logs_channel_id, embed)
 
 def log_deleted(channel_name: str, display_name: str, msg_id: int):
+    save_activity({
+        "action": "deleted",
+        "channel": channel_name,
+        "display_name": display_name,
+        "msg_id": msg_id,
+        "tg_link": None,
+        "time": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+    })
+
     config = load_config()
     logs_channel_id = config.get("logs_channel_id")
     if not logs_channel_id:
