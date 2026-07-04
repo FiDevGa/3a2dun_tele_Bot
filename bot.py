@@ -140,6 +140,11 @@ class ChannelSelectView(discord.ui.View):
         select.callback = self.select_callback
         self.add_item(select)
 
+    @discord.ui.button(label="🔒 إغلاق", style=discord.ButtonStyle.secondary, row=1)
+    async def close_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(
+            embed=discord.Embed(title="🔒 تم الإغلاق", color=discord.Color.greyple()), view=None)
+
     async def select_callback(self, interaction: discord.Interaction):
         selected_key = interaction.data["values"][0]
         data = self.targets.get(selected_key)
