@@ -209,20 +209,19 @@ if __name__ == "__main__":
 
     time.sleep(2)
 
-    bot_thread = threading.Thread(target=run_with_restart, args=("Discord Bot", "bot.py"), daemon=True)
-    bot_thread.start()
-
     if IS_DEPLOYED:
-        # Only run the monitor in the deployed environment.
-        # Running it in dev while deployed causes every message to be forwarded twice.
+        # Only run bot + monitor in the deployed environment.
+        # Both running in dev causes duplicate command responses and double message forwarding.
+        bot_thread     = threading.Thread(target=run_with_restart, args=("Discord Bot", "bot.py"), daemon=True)
         ping_thread    = threading.Thread(target=self_ping, daemon=True)
         monitor_thread = threading.Thread(target=run_with_restart, args=("Telegram Monitor", "monitor.py"), daemon=True)
+        bot_thread.start()
         ping_thread.start()
         monitor_thread.start()
-        print("🚀 Deployed mode — monitor + self-ping started.")
+        print("🚀 Deployed mode — bot + monitor + self-ping started.")
     else:
-        print("🛠️  Dev mode — monitor is DISABLED to prevent duplicate forwarding with the deployed instance.")
-        print("🛠️  Discord bot commands still work normally.")
+        print("🛠️  Dev mode — bot + monitor DISABLED (prevents duplicate commands & forwarding).")
+        print("🛠️  Status page is available here for monitoring.")
 
     while True:
         time.sleep(60)
