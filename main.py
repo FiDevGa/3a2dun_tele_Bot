@@ -202,18 +202,27 @@ def run_web_server():
 
 
 if __name__ == "__main__":
+    IS_DEPLOYED = os.environ.get('REPLIT_DEPLOYMENT', '0') == '1'
+
     server_thread = threading.Thread(target=run_web_server, daemon=True)
     server_thread.start()
 
     time.sleep(2)
 
-    ping_thread    = threading.Thread(target=self_ping, daemon=True)
-    bot_thread     = threading.Thread(target=run_with_restart, args=("Discord Bot", "bot.py"), daemon=True)
-    monitor_thread = threading.Thread(target=run_with_restart, args=("Telegram Monitor", "monitor.py"), daemon=True)
-
-    ping_thread.start()
+    bot_thread = threading.Thread(target=run_with_restart, args=("Discord Bot", "bot.py"), daemon=True)
     bot_thread.start()
-    monitor_thread.start()
+
+    if IS_DEPLOYED:
+        # Only run the monitor in the deployed environment.
+        # Running it in dev while deployed causes every message to be forwarded twice.
+        ping_thread    = threading.Thread(target=self_ping, daemon=True)
+        monitor_thread = threading.Thread(target=run_with_restart, args=("Telegram Monitor", "monitor.py"), daemon=True)
+        ping_thread.start()
+        monitor_thread.start()
+        print("🚀 Deployed mode — monitor + self-ping started.")
+    else:
+        print("🛠️  Dev mode — monitor is DISABLED to prevent duplicate forwarding with the deployed instance.")
+        print("🛠️  Discord bot commands still work normally.")
 
     while True:
         time.sleep(60)
