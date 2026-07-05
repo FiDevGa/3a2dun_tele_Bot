@@ -241,6 +241,12 @@ def send_single_item(item, display_name, channel_name, avatar_url, webhook_url):
 last_checked_ids = load_last_checked()
 print(f"📌 تم تحميل آخر مواضع مراقبة لـ {len(last_checked_ids)} قناة من الذاكرة.")
 
+# Tracks channels that have completed their first check since startup.
+# On the first check, if there are too many new messages, we skip them
+# to avoid flooding Discord with old posts after a restart.
+startup_checked = set()
+MAX_STARTUP_CATCHUP = 3
+
 while True:
     TARGETS = load_targets()
 
@@ -352,6 +358,16 @@ while True:
                             # Do NOT update last_checked_ids here — only after confirmed send
                     except Exception:
                         continue
+
+                # On first startup check: if too many new messages, skip them all
+                # to avoid re-flooding Discord with old posts after a restart.
+                if channel_name not in startup_checked:
+                    startup_checked.add(channel_name)
+                    if len(new_messages) > MAX_STARTUP_CATCHUP:
+                        last_checked_ids[channel_name] = latest_msg_id
+                        save_last_checked(last_checked_ids)
+                        print(f"⏭️ [{channel_name}] تخطي {len(new_messages)} رسالة قديمة عند بدء التشغيل — تم تحديث الموضع إلى #{latest_msg_id}")
+                        new_messages = []
 
                 for item in new_messages:
                     # Double-check: skip if already sent by a previous cycle or parallel instance

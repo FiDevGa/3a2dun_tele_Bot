@@ -48,6 +48,48 @@ def save_config(config):
 
 
 # ─────────────────────────────────────────────
+# Permission helpers
+# ─────────────────────────────────────────────
+
+def has_staff_permission(ctx) -> bool:
+    """Returns True if the user is a server admin or has a configured staff role."""
+    if ctx.guild is None:
+        return False
+    if ctx.author.guild_permissions.administrator:
+        return True
+    config = load_config()
+    staff_roles = config.get("staff_role_ids", [])
+    user_role_ids = [str(r.id) for r in ctx.author.roles]
+    return any(rid in user_role_ids for rid in staff_roles)
+
+def staff_check():
+    async def predicate(ctx):
+        if not has_staff_permission(ctx):
+            embed = discord.Embed(
+                title="🚫 ليس لديك صلاحية",
+                description="هذا الأمر مخصص للمشرفين فقط. اطلب من مدير السيرفر إضافة رتبتك بـ `!staff add @الرتبة`",
+                color=discord.Color.red()
+            )
+            await ctx.send(embed=embed)
+            return False
+        return True
+    return commands.check(predicate)
+
+
+# ─────────────────────────────────────────────
+# Block DMs
+# ─────────────────────────────────────────────
+
+@bot.event
+async def on_message(message):
+    if message.author.bot:
+        return
+    if message.guild is None:
+        return
+    await bot.process_commands(message)
+
+
+# ─────────────────────────────────────────────
 # Edit feature
 # ─────────────────────────────────────────────
 
@@ -179,7 +221,82 @@ async def on_ready():
     print(f"Connection Manager Bot is online as {bot.user}")
 
 
+@bot.command(name="staff")
+async def staff_cmd(ctx, action: str = None, role: discord.Role = None):
+    if ctx.guild is None:
+        return
+    if not ctx.author.guild_permissions.administrator:
+        embed = discord.Embed(
+            title="🚫 للمديرين فقط",
+            description="أمر `!staff` مخصص لمديري السيرفر فقط.",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
+        return
+
+    config = load_config()
+    staff_roles = config.get("staff_role_ids", [])
+
+    if action is None or action.lower() == "list":
+        if not staff_roles:
+            desc = "لا توجد رتب staff مضافة حالياً.\nاستخدم `!staff add @الرتبة` لإضافة رتبة."
+        else:
+            role_mentions = []
+            for rid in staff_roles:
+                r = ctx.guild.get_role(int(rid))
+                role_mentions.append(r.mention if r else f"(رتبة محذوفة: {rid})")
+            desc = "\n".join(role_mentions)
+        embed = discord.Embed(title="👥 رتب Staff المصرح لها", description=desc, color=discord.Color.blurple())
+        embed.set_footer(text="!staff add @رتبة — !staff remove @رتبة")
+        await ctx.send(embed=embed)
+
+    elif action.lower() == "add":
+        if role is None:
+            await ctx.send("❌ حدد الرتبة: `!staff add @الرتبة`")
+            return
+        role_id = str(role.id)
+        if role_id in staff_roles:
+            await ctx.send(f"⚠️ الرتبة {role.mention} مضافة مسبقاً.")
+            return
+        staff_roles.append(role_id)
+        config["staff_role_ids"] = staff_roles
+        save_config(config)
+        embed = discord.Embed(
+            title="✅ تمت الإضافة",
+            description=f"أصبح لأعضاء {role.mention} صلاحية استخدام أوامر البوت.",
+            color=discord.Color.green()
+        )
+        await ctx.send(embed=embed)
+
+    elif action.lower() == "remove":
+        if role is None:
+            await ctx.send("❌ حدد الرتبة: `!staff remove @الرتبة`")
+            return
+        role_id = str(role.id)
+        if role_id not in staff_roles:
+            await ctx.send(f"⚠️ الرتبة {role.mention} غير موجودة في القائمة.")
+            return
+        staff_roles.remove(role_id)
+        config["staff_role_ids"] = staff_roles
+        save_config(config)
+        embed = discord.Embed(
+            title="✅ تمت الإزالة",
+            description=f"تم سحب صلاحية البوت من أعضاء {role.mention}.",
+            color=discord.Color.orange()
+        )
+        await ctx.send(embed=embed)
+
+    else:
+        await ctx.send("❌ استخدام غير صحيح.\n`!staff list` — `!staff add @رتبة` — `!staff remove @رتبة`")
+
+@staff_cmd.error
+async def staff_error(ctx, error):
+    if isinstance(error, commands.RoleNotFound):
+        await ctx.send("❌ لم يتم العثور على الرتبة. استخدم @mention أو اسم الرتبة.")
+
+
 @bot.command(name="connect")
+@staff_check()
 async def connect_channel(ctx, telegram_username: str, display_name: str, webhook_url: str):
     telegram_username = telegram_username.replace("https://t.me/", "").replace("@", "").strip()
     targets = load_targets()
@@ -194,9 +311,12 @@ async def connect_channel(ctx, telegram_username: str, display_name: str, webhoo
 async def connect_error(ctx, error):
     if isinstance(error, commands.MissingRequiredArgument):
         await ctx.send("❌ الاستخدام الصحيح: `!connect telegram_channel_id display_name webhook_url`")
+    elif isinstance(error, commands.CheckFailure):
+        pass
 
 
 @bot.command(name="edit")
+@staff_check()
 async def edit_channel(ctx):
     targets = load_targets()
     if not targets:
@@ -205,8 +325,14 @@ async def edit_channel(ctx):
     embed = discord.Embed(title="✏️ تعديل القنوات المربوطة", description="اختر القناة التي تريد تعديلها:", color=discord.Color.blurple())
     await ctx.send(embed=embed, view=ChannelSelectView(targets, mode="edit"))
 
+@edit_channel.error
+async def edit_error(ctx, error):
+    if isinstance(error, commands.CheckFailure):
+        pass
+
 
 @bot.command(name="delete")
+@staff_check()
 async def delete_channel(ctx):
     targets = load_targets()
     if not targets:
@@ -215,8 +341,14 @@ async def delete_channel(ctx):
     embed = discord.Embed(title="🗑️ حذف قناة مربوطة", description="اختر القناة التي تريد حذفها:", color=discord.Color.red())
     await ctx.send(embed=embed, view=ChannelSelectView(targets, mode="delete"))
 
+@delete_channel.error
+async def delete_error(ctx, error):
+    if isinstance(error, commands.CheckFailure):
+        pass
+
 
 @bot.command(name="list")
+@staff_check()
 async def list_channels(ctx):
     targets = load_targets()
     if not targets:
@@ -227,8 +359,14 @@ async def list_channels(ctx):
         embed.add_field(name=data["display_name"], value=f"🔗 `@{key}`", inline=False)
     await ctx.send(embed=embed)
 
+@list_channels.error
+async def list_error(ctx, error):
+    if isinstance(error, commands.CheckFailure):
+        pass
+
 
 @bot.command(name="status")
+@staff_check()
 async def bot_status(ctx):
     targets = load_targets()
     uptime_seconds = int(time.time() - BOT_START_TIME)
@@ -245,8 +383,14 @@ async def bot_status(ctx):
     embed.add_field(name="📋 قناة السجلات", value=logs_channel_str, inline=False)
     await ctx.send(embed=embed)
 
+@bot_status.error
+async def status_error(ctx, error):
+    if isinstance(error, commands.CheckFailure):
+        pass
+
 
 @bot.command(name="setlogs")
+@staff_check()
 async def set_logs_channel(ctx, channel: discord.TextChannel = None):
     if channel is None:
         channel = ctx.channel
@@ -267,6 +411,8 @@ async def set_logs_channel(ctx, channel: discord.TextChannel = None):
 async def setlogs_error(ctx, error):
     if isinstance(error, commands.ChannelNotFound):
         await ctx.send("❌ لم يتم العثور على القناة. استخدم `!setlogs #اسم-القناة` أو اكتب الأمر في القناة المطلوبة.")
+    elif isinstance(error, commands.CheckFailure):
+        pass
 
 
 TOKEN = os.environ.get('DISCORD_TOKEN')
