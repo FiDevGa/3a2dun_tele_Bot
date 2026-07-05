@@ -152,10 +152,11 @@ def send_to_discord(webhook_url, payload, files=None, retries=3):
     execute_url = f"{webhook_url}?wait=true"
     for attempt in range(1, retries + 1):
         try:
+            timeout = 40 if files else 20
             if files:
-                res = requests.post(execute_url, data={"payload_json": json.dumps(payload)}, files=files, timeout=20)
+                res = requests.post(execute_url, data={"payload_json": json.dumps(payload)}, files=files, timeout=timeout)
             else:
-                res = requests.post(execute_url, json=payload, timeout=20)
+                res = requests.post(execute_url, json=payload, timeout=timeout)
             if res.status_code in [200, 201]:
                 return res
             elif res.status_code == 429:
@@ -165,6 +166,10 @@ def send_to_discord(webhook_url, payload, files=None, retries=3):
             else:
                 print(f"⚠️ فشل الإرسال (محاولة {attempt}/{retries}): {res.status_code} — {res.text[:100]}")
                 time.sleep(1)
+        except requests.exceptions.Timeout:
+            # On timeout we can't know if the message was sent — stop retrying to avoid duplicates
+            print(f"⚠️ انتهى وقت الإرسال (محاولة {attempt}/{retries}) — إيقاف لتجنب التكرار")
+            return None
         except Exception as e:
             print(f"⚠️ خطأ في الإرسال (محاولة {attempt}/{retries}): {e}")
             time.sleep(1)
@@ -305,6 +310,10 @@ while True:
                             continue
                         seen_ids_this_cycle.add(msg_id)
 
+                        # Skip if already sent (guards against restart duplicates)
+                        if (channel_name, msg_id) in sent_messages_registry:
+                            continue
+
                         if msg_id > last_checked_ids[channel_name]:
                             text_element = message.find('div', class_='tgme_widget_message_text')
                             msg_text = text_element.get_text(separator="\n") if text_element else ""
@@ -340,11 +349,14 @@ while True:
                                 "id": msg_id, "text": msg_text, "image_url": image_url,
                                 "video_url": video_url, "audio_url": audio_url, "pdf_url": pdf_url
                             })
-                            last_checked_ids[channel_name] = msg_id
+                            # Do NOT update last_checked_ids here — only after confirmed send
                     except Exception:
                         continue
 
                 for item in new_messages:
+                    # Double-check: skip if already sent by a previous cycle or parallel instance
+                    if (channel_name, item["id"]) in sent_messages_registry:
+                        continue
                     res = send_single_item(item, display_name, channel_name, avatar_url, webhook_url)
                     if res and res.status_code in [200, 201]:
                         discord_msg_id = res.json()["id"]
@@ -356,6 +368,8 @@ while True:
                             "audio_url": item["audio_url"],
                             "pdf_url": item["pdf_url"],
                         }
+                        # Update and save only after confirmed successful send
+                        last_checked_ids[channel_name] = item["id"]
                         save_last_checked(last_checked_ids)
                         tg_link = f"https://t.me/{channel_name}/{item['id']}"
                         log_forwarded(channel_name, display_name, item["id"], tg_link, discord_msg_id, webhook_url)
