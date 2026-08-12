@@ -418,7 +418,7 @@ async def setlogs_error(ctx, error):
         pass
 
 
-TOKEN = os.environ.get("TOKEN")
+TOKEN = ""
 if not TOKEN:
     print("❌ خطأ: لم يتم العثور على المفتاح 'TOKEN' في ملف .env!")
 else:
