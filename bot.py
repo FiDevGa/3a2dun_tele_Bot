@@ -3,6 +3,9 @@ from discord.ext import commands
 import json
 import os
 import time
+from dotenv import load_dotenv
+
+load_dotenv()
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -415,8 +418,8 @@ async def setlogs_error(ctx, error):
         pass
 
 
-TOKEN = os.environ.get('DISCORD_TOKEN')
+TOKEN = os.environ.get("TOKEN")
 if not TOKEN:
-    print("❌ خطأ: لم يتم العثور على المفتاح 'DISCORD_TOKEN' في أداة Secrets الخاصة بـ Replit!")
+    print("❌ خطأ: لم يتم العثور على المفتاح 'TOKEN' في ملف .env!")
 else:
     bot.run(TOKEN)
