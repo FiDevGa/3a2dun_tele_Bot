@@ -5,6 +5,9 @@ import io
 import json
 import os
 from datetime import datetime
+from dotenv import load_dotenv
+
+load_dotenv()
 
 DB_FILE = "connected_channels.json"
 LAST_CHECKED_FILE = "last_checked.json"
@@ -64,7 +67,7 @@ def load_config():
 # ─────────────────────────────────────────────
 
 DISCORD_API = "https://discord.com/api/v10"
-BOT_TOKEN = ""
+BOT_TOKEN = os.getenv("TOKEN")
 
 def post_log_message(logs_channel_id: str, embed: dict):
     if not logs_channel_id or not BOT_TOKEN:
