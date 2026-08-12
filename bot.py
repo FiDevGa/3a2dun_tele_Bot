@@ -1,5 +1,6 @@
 import discord
 from discord.ext import commands
+import discord.app_commands
 import json
 import os
 import time
@@ -56,13 +57,23 @@ def save_config(config):
 
 def has_staff_permission(ctx) -> bool:
     """Returns True if the user is a server admin or has a configured staff role."""
-    if ctx.guild is None:
+    # Handle both discord.Interaction and commands.Context
+    if hasattr(ctx, 'user'):
+        # This is an Interaction
+        user = ctx.user
+        guild = ctx.guild
+    else:
+        # This is a Context
+        user = ctx.author
+        guild = ctx.guild
+    
+    if guild is None:
         return False
-    if ctx.author.guild_permissions.administrator:
+    if user.guild_permissions.administrator:
         return True
     config = load_config()
     staff_roles = config.get("staff_role_ids", [])
-    user_role_ids = [str(r.id) for r in ctx.author.roles]
+    user_role_ids = [str(r.id) for r in user.roles]
     return any(rid in user_role_ids for rid in staff_roles)
 
 def staff_check():
@@ -222,6 +233,11 @@ class ChannelSelectView(discord.ui.View):
 @bot.event
 async def on_ready():
     print(f"Connection Manager Bot is online as {bot.user}")
+    try:
+        synced = await bot.tree.sync()
+        print(f"✅ Synced {len(synced)} slash commands")
+    except Exception as e:
+        print(f"Failed to sync commands: {e}")
 
 
 @bot.command(name="staff")
@@ -416,6 +432,220 @@ async def setlogs_error(ctx, error):
         await ctx.send("❌ لم يتم العثور على القناة. استخدم `/setlogs #اسم-القناة` أو اكتب الأمر في القناة المطلوبة.")
     elif isinstance(error, commands.CheckFailure):
         pass
+
+
+# ─────────────────────────────────────────────
+# Slash Commands
+# ─────────────────────────────────────────────
+
+@bot.tree.command(name="staff", description="إدارة رتب الموظفين الذين يمكنهم استخدام الأوامر")
+async def slash_staff(interaction: discord.Interaction, action: str = None, role: discord.Role = None):
+    """إدارة رتب الموظفين"""
+    if interaction.guild is None:
+        return
+    if not interaction.user.guild_permissions.administrator:
+        embed = discord.Embed(
+            title="🚫 للمديرين فقط",
+            description="أمر `/staff` مخصص لمديري السيرفر فقط.",
+            color=discord.Color.red()
+        )
+        await interaction.response.send_message(embed=embed)
+        return
+
+    config = load_config()
+    staff_roles = config.get("staff_role_ids", [])
+
+    if action is None or action.lower() == "list":
+        if not staff_roles:
+            desc = "لا توجد رتب staff مضافة حالياً.\nاستخدم `/staff add @الرتبة` لإضافة رتبة."
+        else:
+            role_mentions = []
+            for rid in staff_roles:
+                r = interaction.guild.get_role(int(rid))
+                role_mentions.append(r.mention if r else f"(رتبة محذوفة: {rid})")
+            desc = "\n".join(role_mentions)
+        embed = discord.Embed(title="👥 رتب Staff المصرح لها", description=desc, color=discord.Color.blurple())
+        embed.set_footer(text="/staff add @رتبة — /staff remove @رتبة")
+        await interaction.response.send_message(embed=embed)
+
+    elif action.lower() == "add":
+        if role is None:
+            await interaction.response.send_message("❌ حدد الرتبة: `/staff add @الرتبة`")
+            return
+        role_id = str(role.id)
+        if role_id in staff_roles:
+            await interaction.response.send_message(f"⚠️ الرتبة {role.mention} مضافة مسبقاً.")
+            return
+        staff_roles.append(role_id)
+        config["staff_role_ids"] = staff_roles
+        save_config(config)
+        embed = discord.Embed(
+            title="✅ تمت الإضافة",
+            description=f"أصبح لأعضاء {role.mention} صلاحية استخدام أوامر البوت.",
+            color=discord.Color.green()
+        )
+        await interaction.response.send_message(embed=embed)
+
+    elif action.lower() == "remove":
+        if role is None:
+            await interaction.response.send_message("❌ حدد الرتبة: `/staff remove @الرتبة`")
+            return
+        role_id = str(role.id)
+        if role_id not in staff_roles:
+            await interaction.response.send_message(f"⚠️ الرتبة {role.mention} غير موجودة في القائمة.")
+            return
+        staff_roles.remove(role_id)
+        config["staff_role_ids"] = staff_roles
+        save_config(config)
+        embed = discord.Embed(
+            title="✅ تمت الإزالة",
+            description=f"تم سحب صلاحية البوت من أعضاء {role.mention}.",
+            color=discord.Color.orange()
+        )
+        await interaction.response.send_message(embed=embed)
+
+    else:
+        await interaction.response.send_message("❌ استخدام غير صحيح.\n`/staff list` — `/staff add @رتبة` — `/staff remove @رتبة`")
+
+
+@bot.tree.command(name="list", description="عرض قائمة القنوات المربوطة")
+async def slash_list(interaction: discord.Interaction):
+    """عرض القنوات المربوطة"""
+    if not has_staff_permission(interaction):
+        embed = discord.Embed(
+            title="🚫 ليس لديك صلاحية",
+            description="هذا الأمر مخصص للمشرفين فقط.",
+            color=discord.Color.red()
+        )
+        await interaction.response.send_message(embed=embed)
+        return
+    
+    targets = load_targets()
+    if not targets:
+        await interaction.response.send_message("❌ لا توجد قنوات مربوطة حالياً.")
+        return
+    embed = discord.Embed(title=f"📡 القنوات المربوطة ({len(targets)})", color=discord.Color.blurple())
+    for key, data in targets.items():
+        embed.add_field(name=data["display_name"], value=f"🔗 `@{key}`", inline=False)
+    await interaction.response.send_message(embed=embed)
+
+
+@bot.tree.command(name="status", description="عرض حالة البوت الحالية")
+async def slash_status(interaction: discord.Interaction):
+    """عرض حالة البوت"""
+    if not has_staff_permission(interaction):
+        embed = discord.Embed(
+            title="🚫 ليس لديك صلاحية",
+            description="هذا الأمر مخصص للمشرفين فقط.",
+            color=discord.Color.red()
+        )
+        await interaction.response.send_message(embed=embed)
+        return
+    
+    targets = load_targets()
+    uptime_seconds = int(time.time() - BOT_START_TIME)
+    hours, remainder = divmod(uptime_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    uptime_str = f"{hours}س {minutes}د {seconds}ث"
+    config = load_config()
+    logs_channel_id = config.get("logs_channel_id")
+    logs_channel_str = f"<#{logs_channel_id}>" if logs_channel_id else "غير محدد"
+    embed = discord.Embed(title="📊 حالة البوت", color=discord.Color.green())
+    embed.add_field(name="🤖 البوت", value=str(bot.user), inline=False)
+    embed.add_field(name="⏱️ وقت التشغيل", value=uptime_str, inline=True)
+    embed.add_field(name="📡 القنوات المراقبة", value=str(len(targets)), inline=True)
+    embed.add_field(name="📋 قناة السجلات", value=logs_channel_str, inline=False)
+    await interaction.response.send_message(embed=embed)
+
+
+@bot.tree.command(name="setlogs", description="تعيين قناة السجلات")
+async def slash_setlogs(interaction: discord.Interaction, channel: discord.TextChannel = None):
+    """تعيين قناة السجلات"""
+    if not has_staff_permission(interaction):
+        embed = discord.Embed(
+            title="🚫 ليس لديك صلاحية",
+            description="هذا الأمر مخصص للمشرفين فقط.",
+            color=discord.Color.red()
+        )
+        await interaction.response.send_message(embed=embed)
+        return
+    
+    if channel is None:
+        channel = interaction.channel
+
+    config = load_config()
+    config["logs_channel_id"] = str(channel.id)
+    save_config(config)
+
+    embed = discord.Embed(
+        title="✅ تم تعيين قناة السجلات",
+        description=f"سيتم إرسال سجل أحداث المراقبة إلى {channel.mention}",
+        color=discord.Color.green(),
+    )
+    embed.add_field(name="ما الذي سيُسجَّل؟", value="🚀 كل رسالة يتم تحويلها من تليجرام إلى ديسكورد\n🗑️ كل رسالة يتم حذفها من ديسكورد", inline=False)
+    await interaction.response.send_message(embed=embed)
+
+
+@bot.tree.command(name="connect", description="ربط قناة تليجرام بالديسكورد")
+async def slash_connect(interaction: discord.Interaction, telegram_username: str, display_name: str, webhook_url: str):
+    """ربط قناة تليجرام"""
+    if not has_staff_permission(interaction):
+        embed = discord.Embed(
+            title="🚫 ليس لديك صلاحية",
+            description="هذا الأمر مخصص للمشرفين فقط.",
+            color=discord.Color.red()
+        )
+        await interaction.response.send_message(embed=embed)
+        return
+    
+    telegram_username = telegram_username.replace("https://t.me/", "").replace("@", "").strip()
+    targets = load_targets()
+    if telegram_username.lower() in [k.lower() for k in targets.keys()]:
+        await interaction.response.send_message(f"❌ القناة `{telegram_username}` مربوطة مسبقاً بالفعل!")
+        return
+    targets[telegram_username] = {"display_name": display_name, "webhook": webhook_url}
+    save_targets(targets)
+    await interaction.response.send_message(f"✅ تم ربط القناة وحفظها!\n• معرف التليجرام: `{telegram_username}`\n• اسم العرض: **{display_name}**")
+
+
+@bot.tree.command(name="edit", description="تعديل قناة مربوطة")
+async def slash_edit(interaction: discord.Interaction):
+    """تعديل القنوات"""
+    if not has_staff_permission(interaction):
+        embed = discord.Embed(
+            title="🚫 ليس لديك صلاحية",
+            description="هذا الأمر مخصص للمشرفين فقط.",
+            color=discord.Color.red()
+        )
+        await interaction.response.send_message(embed=embed)
+        return
+    
+    targets = load_targets()
+    if not targets:
+        await interaction.response.send_message("❌ لا توجد قنوات مربوطة حالياً.")
+        return
+    embed = discord.Embed(title="✏️ تعديل القنوات المربوطة", description="اختر القناة التي تريد تعديلها:", color=discord.Color.blurple())
+    await interaction.response.send_message(embed=embed, view=ChannelSelectView(targets, mode="edit"))
+
+
+@bot.tree.command(name="delete", description="حذف قناة مربوطة")
+async def slash_delete(interaction: discord.Interaction):
+    """حذف القنوات"""
+    if not has_staff_permission(interaction):
+        embed = discord.Embed(
+            title="🚫 ليس لديك صلاحية",
+            description="هذا الأمر مخصص للمشرفين فقط.",
+            color=discord.Color.red()
+        )
+        await interaction.response.send_message(embed=embed)
+        return
+    
+    targets = load_targets()
+    if not targets:
+        await interaction.response.send_message("❌ لا توجد قنوات مربوطة حالياً.")
+        return
+    embed = discord.Embed(title="🗑️ حذف قناة مربوطة", description="اختر القناة التي تريد حذفها:", color=discord.Color.red())
+    await interaction.response.send_message(embed=embed, view=ChannelSelectView(targets, mode="delete"))
 
 
 TOKEN = os.getenv("TOKEN")
