@@ -5,6 +5,8 @@ import time
 import json
 import requests
 from datetime import datetime
+from aiohttp import web
+import asyncio
 
 START_TIME = time.time()
 
@@ -34,29 +36,15 @@ def run_with_restart(name, script):
         time.sleep(5)
 
 
-def run_web_server():
-    app.run(host='0.0.0.0', port=5000)
-
-
 if __name__ == "__main__":
-    IS_DEPLOYED = os.environ.get('REPLIT_DEPLOYMENT', '0') == '1'
-
-    server_thread = threading.Thread(target=run_web_server, daemon=True)
-    server_thread.start()
-
-    time.sleep(2)
-
-    if IS_DEPLOYED:
-        # Only run bot + monitor in the deployed environment.
-        # Both running in dev causes duplicate command responses and double message forwarding.
-        bot_thread     = threading.Thread(target=run_with_restart, args=("Discord Bot", "bot.py"), daemon=True)
-        monitor_thread = threading.Thread(target=run_with_restart, args=("Telegram Monitor", "monitor.py"), daemon=True)
-        bot_thread.start()
-        monitor_thread.start()
-        print("🚀 Deployed mode — bot + monitor started.")
-    else:
-        print("🛠️  Dev mode — bot + monitor DISABLED (prevents duplicate commands & forwarding).")
-        print("🛠️  Status page is available here for monitoring.")
+    # Start bot and monitor threads
+    bot_thread     = threading.Thread(target=run_with_restart, args=("Discord Bot", "bot.py"), daemon=True)
+    monitor_thread = threading.Thread(target=run_with_restart, args=("Telegram Monitor", "monitor.py"), daemon=True)
+    
+    bot_thread.start()
+    monitor_thread.start()
+    
+    print("🚀 Discord Bot and Telegram Monitor started.")
 
     while True:
         time.sleep(60)

@@ -9,7 +9,7 @@ load_dotenv()
 
 intents = discord.Intents.default()
 intents.message_content = True
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix="/", intents=intents)
 
 BOT_START_TIME = time.time()
 DB_FILE = "connected_channels.json"
@@ -70,7 +70,7 @@ def staff_check():
         if not has_staff_permission(ctx):
             embed = discord.Embed(
                 title="🚫 ليس لديك صلاحية",
-                description="هذا الأمر مخصص للمشرفين فقط. اطلب من مدير السيرفر إضافة رتبتك بـ `!staff add @الرتبة`",
+                description="هذا الأمر مخصص للمشرفين فقط. اطلب من مدير السيرفر إضافة رتبتك بـ `/staff add @الرتبة`",
                 color=discord.Color.red()
             )
             await ctx.send(embed=embed)
@@ -231,7 +231,7 @@ async def staff_cmd(ctx, action: str = None, role: discord.Role = None):
     if not ctx.author.guild_permissions.administrator:
         embed = discord.Embed(
             title="🚫 للمديرين فقط",
-            description="أمر `!staff` مخصص لمديري السيرفر فقط.",
+            description="أمر `/staff` مخصص لمديري السيرفر فقط.",
             color=discord.Color.red()
         )
         await ctx.send(embed=embed)
@@ -242,7 +242,7 @@ async def staff_cmd(ctx, action: str = None, role: discord.Role = None):
 
     if action is None or action.lower() == "list":
         if not staff_roles:
-            desc = "لا توجد رتب staff مضافة حالياً.\nاستخدم `!staff add @الرتبة` لإضافة رتبة."
+            desc = "لا توجد رتب staff مضافة حالياً.\nاستخدم `/staff add @الرتبة` لإضافة رتبة."
         else:
             role_mentions = []
             for rid in staff_roles:
@@ -250,12 +250,12 @@ async def staff_cmd(ctx, action: str = None, role: discord.Role = None):
                 role_mentions.append(r.mention if r else f"(رتبة محذوفة: {rid})")
             desc = "\n".join(role_mentions)
         embed = discord.Embed(title="👥 رتب Staff المصرح لها", description=desc, color=discord.Color.blurple())
-        embed.set_footer(text="!staff add @رتبة — !staff remove @رتبة")
+        embed.set_footer(text="/staff add @رتبة — /staff remove @رتبة")
         await ctx.send(embed=embed)
 
     elif action.lower() == "add":
         if role is None:
-            await ctx.send("❌ حدد الرتبة: `!staff add @الرتبة`")
+            await ctx.send("❌ حدد الرتبة: `/staff add @الرتبة`")
             return
         role_id = str(role.id)
         if role_id in staff_roles:
@@ -273,7 +273,7 @@ async def staff_cmd(ctx, action: str = None, role: discord.Role = None):
 
     elif action.lower() == "remove":
         if role is None:
-            await ctx.send("❌ حدد الرتبة: `!staff remove @الرتبة`")
+            await ctx.send("❌ حدد الرتبة: `/staff remove @الرتبة`")
             return
         role_id = str(role.id)
         if role_id not in staff_roles:
@@ -290,7 +290,7 @@ async def staff_cmd(ctx, action: str = None, role: discord.Role = None):
         await ctx.send(embed=embed)
 
     else:
-        await ctx.send("❌ استخدام غير صحيح.\n`!staff list` — `!staff add @رتبة` — `!staff remove @رتبة`")
+        await ctx.send("❌ استخدام غير صحيح.\n`/staff list` — `/staff add @رتبة` — `/staff remove @رتبة`")
 
 @staff_cmd.error
 async def staff_error(ctx, error):
@@ -313,7 +313,7 @@ async def connect_channel(ctx, telegram_username: str, display_name: str, webhoo
 @connect_channel.error
 async def connect_error(ctx, error):
     if isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send("❌ الاستخدام الصحيح: `!connect telegram_channel_id display_name webhook_url`")
+        await ctx.send("❌ الاستخدام الصحيح: `/connect telegram_channel_id display_name webhook_url`")
     elif isinstance(error, commands.CheckFailure):
         pass
 
@@ -413,7 +413,7 @@ async def set_logs_channel(ctx, channel: discord.TextChannel = None):
 @set_logs_channel.error
 async def setlogs_error(ctx, error):
     if isinstance(error, commands.ChannelNotFound):
-        await ctx.send("❌ لم يتم العثور على القناة. استخدم `!setlogs #اسم-القناة` أو اكتب الأمر في القناة المطلوبة.")
+        await ctx.send("❌ لم يتم العثور على القناة. استخدم `/setlogs #اسم-القناة` أو اكتب الأمر في القناة المطلوبة.")
     elif isinstance(error, commands.CheckFailure):
         pass
 
