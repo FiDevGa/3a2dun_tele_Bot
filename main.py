@@ -4,10 +4,8 @@ import subprocess
 import time
 import json
 import requests
-from flask import Flask
 from datetime import datetime
 
-app = Flask('')
 START_TIME = time.time()
 
 def get_path(filename):
@@ -23,21 +21,6 @@ def load_json(filename, default):
         except Exception:
             return default
     return default
-
-@app.route('/ping')
-def ping():
-    return "pong", 200
-
-
-def self_ping():
-    """Ping ourselves every 30 seconds to stay alive on autoscale deployments."""
-    time.sleep(15)
-    while True:
-        try:
-            requests.get("http://127.0.0.1:5000/ping", timeout=10)
-        except Exception:
-            pass
-        time.sleep(30)
 
 
 def run_with_restart(name, script):
@@ -67,12 +50,10 @@ if __name__ == "__main__":
         # Only run bot + monitor in the deployed environment.
         # Both running in dev causes duplicate command responses and double message forwarding.
         bot_thread     = threading.Thread(target=run_with_restart, args=("Discord Bot", "bot.py"), daemon=True)
-        ping_thread    = threading.Thread(target=self_ping, daemon=True)
         monitor_thread = threading.Thread(target=run_with_restart, args=("Telegram Monitor", "monitor.py"), daemon=True)
         bot_thread.start()
-        ping_thread.start()
         monitor_thread.start()
-        print("🚀 Deployed mode — bot + monitor + self-ping started.")
+        print("🚀 Deployed mode — bot + monitor started.")
     else:
         print("🛠️  Dev mode — bot + monitor DISABLED (prevents duplicate commands & forwarding).")
         print("🛠️  Status page is available here for monitoring.")

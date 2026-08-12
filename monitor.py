@@ -64,7 +64,7 @@ def load_config():
 # ─────────────────────────────────────────────
 
 DISCORD_API = "https://discord.com/api/v10"
-BOT_TOKEN = os.environ.get("DISCORD_TOKEN", "")
+BOT_TOKEN = ""
 
 def post_log_message(logs_channel_id: str, embed: dict):
     if not logs_channel_id or not BOT_TOKEN:
