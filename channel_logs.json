@@ -1,6 +1,46 @@
 [
     {
         "action": "forwarded",
+        "channel": "manhajiyyat",
+        "display_name": "مَنهجيّات",
+        "msg_id": 7466,
+        "tg_link": "https://t.me/manhajiyyat/7466",
+        "time": "2026-08-13 05:40:17"
+    },
+    {
+        "action": "forwarded",
+        "channel": "manhajiyyat",
+        "display_name": "مَنهجيّات",
+        "msg_id": 7465,
+        "tg_link": "https://t.me/manhajiyyat/7465",
+        "time": "2026-08-13 05:40:14"
+    },
+    {
+        "action": "forwarded",
+        "channel": "manhajiyyat",
+        "display_name": "مَنهجيّات",
+        "msg_id": 7464,
+        "tg_link": "https://t.me/manhajiyyat/7464",
+        "time": "2026-08-13 05:40:13"
+    },
+    {
+        "action": "forwarded",
+        "channel": "khawatir_alsayed",
+        "display_name": "خواطر وماجريات | أحمد السيد",
+        "msg_id": 1255,
+        "tg_link": "https://t.me/khawatir_alsayed/1255",
+        "time": "2026-08-13 05:40:10"
+    },
+    {
+        "action": "forwarded",
+        "channel": "khawatir_alsayed",
+        "display_name": "خواطر وماجريات | أحمد السيد",
+        "msg_id": 1251,
+        "tg_link": "https://t.me/khawatir_alsayed/1251",
+        "time": "2026-08-13 05:40:08"
+    },
+    {
+        "action": "forwarded",
         "channel": "abdulazizatarefe",
         "display_name": "عبدالعزيز الطريفي",
         "msg_id": 12475,

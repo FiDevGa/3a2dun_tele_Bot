@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bot Status Monitor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            text-align: center;
+            max-width: 500px;
+            width: 100%;
+        }
+
+        .title {
+            color: white;
+            font-size: 28px;
+            font-weight: 600;
+            margin-bottom: 40px;
+            letter-spacing: -0.5px;
+        }
+
+        .status-section {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        /* Loading Spinner */
+        .spinner {
+            display: none;
+            width: 50px;
+            height: 50px;
+            margin: 0 auto 20px;
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s linear infinite;
+        }
+
+        .spinner.active {
+            display: block;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .loading-text {
+            display: none;
+            color: white;
+            font-size: 16px;
+            font-weight: 500;
+            letter-spacing: 0.5px;
+            margin-bottom: 20px;
+        }
+
+        .loading-text.active {
+            display: block;
+        }
+
+        /* Status Box */
+        .status-box {
+            display: none;
+            padding: 40px 30px;
+            border-radius: 12px;
+            font-size: 20px;
+            font-weight: 600;
+            animation: slideIn 0.5s ease-out;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            letter-spacing: -0.3px;
+        }
+
+        .status-box.active {
+            display: block;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Status Box Variants */
+        .status-box.success {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+        }
+
+        .status-box.error {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            color: white;
+        }
+
+        .status-box.info {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            color: white;
+        }
+
+        .status-icon {
+            font-size: 40px;
+            margin-bottom: 15px;
+            display: block;
+        }
+
+        .status-message {
+            word-wrap: break-word;
+            line-height: 1.5;
+        }
+
+        .status-message small {
+            display: block;
+            margin-top: 12px;
+            font-size: 14px;
+            line-height: 1.6;
+            opacity: 0.9;
+        }
+
+        /* Retry Button */
+        .retry-btn {
+            display: none;
+            margin-top: 20px;
+            padding: 12px 30px;
+            background-color: white;
+            color: #667eea;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .retry-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+        }
+
+        .retry-btn.active {
+            display: inline-block;
+        }
+
+        .retry-btn:active {
+            transform: translateY(0);
+        }
+
+        /* Footer */
+        .footer {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 12px;
+            margin-top: 40px;
+            letter-spacing: 0.3px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="title">🤖 Bot Status</h1>
+
+        <div class="status-section">
+            <div class="spinner"></div>
+            <p class="loading-text">Checking bot status...</p>
+            
+            <div class="status-box">
+                <span class="status-icon">✓</span>
+                <div class="status-message"></div>
+            </div>
+
+            <button class="retry-btn">↻ Retry</button>
+        </div>
+
+        <div class="footer">
+            <p>Monitoring bot connection at localhost:5000</p>
+        </div>
+    </div>
+
+    <script>
+        const spinner = document.querySelector('.spinner');
+        const loadingText = document.querySelector('.loading-text');
+        const statusBox = document.querySelector('.status-box');
+        const statusMessage = document.querySelector('.status-message');
+        const statusIcon = document.querySelector('.status-icon');
+        const retryBtn = document.querySelector('.retry-btn');
+
+        async function checkBotStatus() {
+            try {
+                // Show loading state
+                spinner.classList.add('active');
+                loadingText.classList.add('active');
+                statusBox.classList.remove('active');
+                retryBtn.classList.remove('active');
+
+                // Fetch from the ping endpoint
+                const response = await fetch('http://localhost:5000/ping');
+                const data = await response.json();
+
+                // Hide loading state
+                spinner.classList.remove('active');
+                loadingText.classList.remove('active');
+
+                // Display status
+                displayStatus(data, response.status === 200);
+
+            } catch (error) {
+                // Hide loading state
+                spinner.classList.remove('active');
+                loadingText.classList.remove('active');
+
+                // Display error
+                displayError(error.message);
+            }
+        }
+
+        function displayStatus(data, isSuccess) {
+            statusBox.classList.remove('success', 'error', 'info');
+            
+            if (isSuccess) {
+                // Check if status contains "Already running" or "Started"
+                if (data.status.includes('Already running')) {
+                    statusBox.classList.add('success');
+                    statusIcon.textContent = '✓';
+                } else if (data.status.includes('Started')) {
+                    statusBox.classList.add('info');
+                    statusIcon.textContent = '▶';
+                } else if (data.status.includes('Processes restarting')) {
+                    statusBox.classList.add('info');
+                    statusIcon.textContent = '⟳';
+                } else {
+                    statusBox.classList.add('info');
+                    statusIcon.textContent = 'ℹ';
+                }
+
+                // Format the message
+                let messageText = data.status;
+                if (data.bot) {
+                    messageText += `<br><small style="opacity: 0.8; font-size: 14px; margin-top: 10px; display: block;">
+                        Bot: ${data.bot}<br>Monitor: ${data.monitor}`;
+                    if (data.uptime) {
+                        messageText += `<br>Uptime: ${data.uptime}`;
+                    }
+                    messageText += '</small>';
+                }
+                statusMessage.innerHTML = messageText;
+            } else {
+                statusBox.classList.add('error');
+                statusIcon.textContent = '✕';
+                statusMessage.textContent = 'Unexpected response format';
+            }
+
+            statusBox.classList.add('active');
+            retryBtn.classList.add('active');
+        }
+
+        function displayError(errorMessage) {
+            statusBox.classList.remove('success', 'error', 'info');
+            statusBox.classList.add('error');
+            statusIcon.textContent = '✕';
+            statusMessage.textContent = `Connection Error: ${errorMessage}`;
+            statusBox.classList.add('active');
+            retryBtn.classList.add('active');
+        }
+
+        // Add retry button functionality
+        retryBtn.addEventListener('click', checkBotStatus);
+
+        // Fetch status when page loads
+        window.addEventListener('load', checkBotStatus);
+    </script>
+</body>
+</html>
